@@ -435,7 +435,7 @@
       "popular" : true
     }, {
       "id" : "servicetaskfields",
-      "type" : "Complex",
+      "type" : "recommenderbased",
       "title" : "Class fields",
       "value" : "",
       "description" : "Field extensions",

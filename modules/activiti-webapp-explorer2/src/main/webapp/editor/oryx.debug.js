@@ -1988,6 +1988,7 @@ ORYX.CONFIG.TYPE_DATE =					"date";
 ORYX.CONFIG.TYPE_CHOICE =				"choice";
 ORYX.CONFIG.TYPE_URL =					"url";
 ORYX.CONFIG.TYPE_DIAGRAM_LINK =			"diagramlink";
+ORYX.CONFIG.TYPE_RECOMMENDERBASED = "recommenderbased";
 ORYX.CONFIG.TYPE_COMPLEX =				"complex";
 ORYX.CONFIG.TYPE_MULTIPLECOMPLEX =		"multiplecomplex";
 ORYX.CONFIG.TYPE_TEXT =					"text";
@@ -6552,6 +6553,18 @@ ORYX.Core.StencilSet.Property = Clazz.extend({
                 }
             }
         // extended by Kerstin (end)
+        // extended by Denis (start)
+        else if (jsonProp.type === ORYX.CONFIG.TYPE_RECOMMENDERBASED) {
+            if (jsonProp.complexItems && jsonProp.complexItems instanceof Array) {
+                jsonProp.complexItems.each((function(jsonComplexItem){
+                    this._complexItems[jsonComplexItem.id.toLowerCase()] = new ORYX.Core.StencilSet.ComplexPropertyItem(jsonComplexItem, namespace, this);
+                }).bind(this));
+            }
+            else {
+                throw "ORYX.Core.StencilSet.Property(construct): No complex property items defined."
+            }
+        }
+        // extended by Denis (End)
     },
 	
 	getMinForType : function(type) {
@@ -7019,6 +7032,17 @@ ORYX.Core.StencilSet.ComplexPropertyItem = Clazz.extend({
 				throw "ORYX.Core.StencilSet.Property(construct): No property items defined."
 			}
 		}
+        // extended by Denis (start)
+        /*else if (jsonProp.type === ORYX.CONFIG.TYPE_RECOMMENDERBASED) {
+            if(jsonItem.complexItems && jsonItem.complexItems instanceof Array) {
+                jsonItem.complexItems.each((function(complexItem) {
+                    this._complexItems[complexItem.id] = new ORYX.Core.StencilSet.ComplexPropertyItem(complexItem, namespace, this);
+                }).bind(this));
+            } else {
+                throw "ORYX.Core.StencilSet.Property(construct): No property items defined."
+            }
+        }*/
+        // extended by Denis (end)
 	},
 
 	/**
@@ -10242,9 +10266,18 @@ ORYX.Core.AbstractShape = ORYX.Core.UIObject.extend(
                 	&& Ext.type(value) === "string"){
 						
                   try {value = Ext.decode(value);} catch(error){}
-              
+              }
+              // extended by Denis (start)
+              else if (this.getStencil().property(key)
+                  && this.getStencil().property(key).type() === ORYX.CONFIG.TYPE_RECOMMENDERBASED
+                  && Ext.type(value) === "string") {
+
+                  try {value = Ext.decode(value);} catch(error){}
+              }
+              // extended by Denis (end)
+
 			  // Parse date
-			  } else if (value instanceof Date&&this.getStencil().property(key)){
+			   else if (value instanceof Date&&this.getStencil().property(key)){
 			  	try {
 					value = value.format(this.getStencil().property(key).dateFormat());
 				} catch(e){}
@@ -17822,7 +17855,7 @@ ORYX.Plugins.AbstractPlugin = Clazz.extend({
         this.facade.registerOnEvent(ORYX.CONFIG.EVENT_SELECTION_CHANGED, this._stopSelectionChange.bind(this));
     },
     /**
-     * Disables read only mode, see @see
+     * Disables read only mode, see
      * @methodOf ORYX.Plugins.AbstractPlugin.prototype
      * @see ORYX.Plugins.AbstractPlugin.prototype.enableReadOnlyMode
      */
@@ -21466,6 +21499,15 @@ ORYX.Plugins.PropertyWindow = {
 							editorGrid = new Ext.Editor(cf);
 							break;
 						// extended by Kerstin (end)
+
+                        // extended by Denis (start)
+                        case ORYX.CONFIG.TYPE_RECOMMENDERBASED:
+
+                            var cf = new Ext.form.RecommenderEditor({ allowBlank: pair.optional()}, pair.complexItems(), key, this.facade);
+                            cf.on('dialogClosed', this.dialogClosed, {scope:this, row:index, col:1,field:cf});
+                            editorGrid = new Ext.Editor(cf);
+                            break;
+                        // extended by Denis (end)
 						
 						case ORYX.CONFIG.TYPE_MULTIPLECOMPLEX:
 							
@@ -21565,7 +21607,288 @@ ORYX.Plugins.PropertyWindow = {
 }
 ORYX.Plugins.PropertyWindow = Clazz.extend(ORYX.Plugins.PropertyWindow);
 
+//Extended by Denis (Start)
+/**
+ * Editor for Cloud Resource Recommender based inputs
+ *
+ * When starting to edit the editor, it pops up a window to query the cloud base recommender system and specify a
+ * cloud resource description
+ * This in implemented by Denis Weerasiri
+ *
+ * @param config
+ * @param items
+ * @param key
+ * @param facade
+ * @constructor
+ */
+Ext.form.RecommenderEditor = function(config, items, key, facade){
+    Ext.form.ComplexListField.superclass.constructor.call(this, config);
+    this.items 	= items;
+    this.key 	= key;
+    this.facade = facade;
+};
 
+/**
+ * This is a special trigger field manipulate for complex properties.
+ * The chosen clod resource description will be stored as trigger field value in the JSON format.
+ */
+Ext.extend(Ext.form.RecommenderEditor, Ext.form.TriggerField, {
+    /**
+     * @cfg {String} triggerClass
+     * An additional CSS class used to style the trigger button.  The trigger will always get the
+     * class 'x-form-trigger' and triggerClass will be <b>appended</b> if specified.
+     */
+    triggerClass:	'x-form-complex-trigger',
+    readOnly:		true,
+    emptyText: 		ORYX.I18N.PropertyWindow.clickIcon,
+
+    /**
+     * Builds the JSON value from the data source of the grid in the dialog.
+     */
+    buildValue: function(record) {
+        var id = record.get('Id');
+
+        var jsonString = "[{'servicetask_field_name': 'resourceID', 'servicetask_field_value': '" + id + "', 'servicetask_field_expression': ''}]";
+        jsonString = "{'totalCount':1, 'items':" + jsonString + "}";
+
+        return Object.toJSON(jsonString.evalJSON());
+
+
+       /* var jsonString = "[";
+        for (var j = 0; j < this.items.length; j++) {
+            var key = this.items[j].id();
+            var value = this.data.get(key);
+            jsonString += key + ':' + ("" + value).toJSON();
+            if (j < (this.items.length -1)) {
+                jsonString += ",";
+            }
+            console.info("Key:" + key + ". Value:" + value);
+        }
+
+        jsonString += "]";
+
+        //var jsonString = "[{'servicetask_field_name': 'resourceID', 'servicetask_field_value': '1', 'servicetask_field_expression': ''}]";
+
+        jsonString = "{'totalCount':1, 'items':" + jsonString + "}";
+        return Object.toJSON(jsonString.evalJSON());*/
+
+    },
+
+    /**
+     * Returns the field key.
+     */
+    getFieldKey: function() {
+        return this.key;
+    },
+
+    /**
+     * Returns the actual value of the trigger field.
+     * If the table does not contain any values the empty
+     * string will be returned.
+     */
+    getValue : function(){
+
+        // return actual value if grid is active
+        /*if (this.grid) {
+            return this.buildValue();
+        } else*/ if (this.data == undefined) {
+            return "";
+        } else {
+            return this.data;
+        }
+    },
+
+    /**
+     * Sets the value of the trigger field.
+     * In this case this sets the data that will be shown in
+     * the grid of the dialog.
+     *
+     * @param {Object} value The value to be set (JSON format or empty string)
+     */
+    setValue: function(value) {
+        if (value.length > 0 && value.indexOf('<') == -1) {
+        // set only if this.data not set yet
+        // only to initialize the grid
+            if (this.data == undefined) {
+                this.data = value;
+            }
+        }
+    },
+
+    /**
+     * Returns false. In this way key events will not be propagated
+     * to other elements.
+     *
+     * @param {Object} event The keydown event.
+     */
+    keydownHandler: function(event) {
+        return false;
+    },
+
+    /**
+     * The listeners of the dialog.
+     *
+     * If the dialog is hidded, a dialogClosed event will be fired.
+     * This has to be used by the parent element of the trigger field
+     * to reenable the trigger field (focus gets lost when entering values
+     * in the dialog).
+     */
+    dialogListeners : {
+        show : function(){ // retain focus styling
+            this.onFocus();
+            this.facade.registerOnEvent(ORYX.CONFIG.EVENT_KEYDOWN, this.keydownHandler.bind(this));
+            this.facade.disableEvent(ORYX.CONFIG.EVENT_KEYDOWN);
+            return;
+        },
+        hide : function(){
+
+            var dl = this.dialogListeners;
+            this.dialog.un("show", dl.show,  this);
+            this.dialog.un("hide", dl.hide,  this);
+
+            this.dialog.destroy(true);
+            this.grid.destroy(true);
+            delete this.grid;
+            delete this.dialog;
+
+            this.facade.unregisterOnEvent(ORYX.CONFIG.EVENT_KEYDOWN, this.keydownHandler.bind(this));
+            this.facade.enableEvent(ORYX.CONFIG.EVENT_KEYDOWN);
+
+// store data and notify parent about the closed dialog
+// parent has to handel this event and start editing the text field again
+            this.fireEvent('dialogClosed', this.data);
+
+            Ext.form.RecommenderEditor.superclass.setValue.call(this, this.data);
+        }
+    },
+
+    /**
+     * If the trigger was clicked a dialog has to be opened
+     * to enter the values for the complex property.
+     */
+    onTriggerClick : function(){
+        if(this.disabled){
+            return;
+        }
+
+        var data = this.data;
+
+        if (data == "") {
+// empty string can not be parsed
+            data = "{}";
+        }
+
+
+
+        var restRequestTextBox = new Ext.form.TextField({
+            value: 'http://localhost:8080/recommender-1.0-SNAPSHOT/recommender/getAll',
+            grow: true
+        });
+
+        var submitButton = new Ext.Button({
+            text: "Submit Rest Request",
+            listeners : {
+                click: function() {
+                    new Ajax.Request(restRequestTextBox.getValue(), {
+                        method: 'get',
+                        onSuccess: function (response) {
+                            var responseObject = JSON.parse(response.responseText);
+                            jsonDataStore.loadData(responseObject, false);
+                        }, onFailure: function() {
+                            console.error('Somethin went wrong when REST invocation.');
+                        }
+                    });
+                }
+            }
+        });
+
+        var jsonDataStore = new Ext.data.JsonStore({
+            // store configs
+            autoDestroy: true,
+            storeId: 'myStore',
+            autoLoad : false,
+            // reader configs
+            root: 'CloudResourceDescriptions',
+            fields: ['Id', 'Name','TargetEnv', 'Deployer']
+        });
+
+        /*when the submit button clicks, get the response  and load() the jsonstore with the received response.
+            Then load the grid
+        Then once the user selects a particular row, and click OK,  generate the xml (using buildValue()) to be stored in the .bpmn*/
+        //here the issue is setValue() is not called.
+
+        this.grid = new Ext.grid.GridPanel({
+                store: jsonDataStore,
+                columns: [
+                    {id: 'Id', header: "Id", width: 100, sortable: true, dataIndex: 'Id'},
+                    {header: "Name", width: 100, sortable: true, dataIndex: 'Name'},
+                    {header: "TargetEnv", width: 100, sortable: true, dataIndex: 'TargetEnv'},
+                    {header: "Deployer", width: 100, sortable: true, dataIndex: 'Deployer'}
+                ],
+                viewConfig: {
+                    forceFit: true
+                },
+                sm: new Ext.grid.RowSelectionModel({singleSelect: true}),
+                width: 400,
+                height: 300,
+                frame: true,
+                title: 'Recommended Cloud Resource Descriptions',
+                iconCls: 'icon-grid',
+                listeners: {
+                    rowclick : function(grid, rowIndex, e) {
+                        var record = grid.getStore().getAt(rowIndex);
+
+                        this.data = this.buildValue(record);
+
+                        this.setValue(this.data);
+                    },
+                    scope: this
+                }
+            }
+        );
+
+        this.dialog = new Ext.Window({
+            autoCreate: true,
+            layout: "anchor",
+            title: ORYX.I18N.PropertyWindow.complex,
+            height: 350,
+            width: 400,
+            modal:true,
+            collapsible:false,
+            fixedcenter: true,
+            shadow:true,
+            proxyDrag: true,
+            keys:[{
+                key: 27,
+                fn: function(){
+                    this.dialog.hide
+                }.bind(this)
+            }],
+            items:[restRequestTextBox, submitButton, this.grid],
+            bodyStyle:"background-color:#FFFFFF",
+            buttons: [{
+                text: ORYX.I18N.PropertyWindow.ok,
+                handler: function(){
+                    /*this.data = this.buildValue();*/
+                    this.dialog.hide()
+                }.bind(this)
+            }, {
+                text: ORYX.I18N.PropertyWindow.cancel,
+                handler: function(){
+                    this.dialog.hide()
+                }.bind(this)
+            }]
+        });
+
+        this.dialog.on(Ext.apply({}, this.dialogListeners, {
+            scope:this
+        }));
+
+        this.dialog.show();
+
+    }
+});
+//Extended by Denis (End)
 
 /**
  * Editor for complex type
@@ -21654,11 +21977,11 @@ Ext.extend(Ext.form.ComplexListField, Ext.form.TriggerField,  {
     getValue : function(){
 		// return actual value if grid is active
 		if (this.grid) {
-			return this.buildValue();			
+            return this.buildValue();
 		} else if (this.data == undefined) {
 			return "";
 		} else {
-			return this.data;
+            return this.data;
 		}
     },
 	
@@ -22623,7 +22946,6 @@ Ext.extend(Ext.form.MultipleComplexListField, Ext.form.TriggerField,  {
 		
 	}
 });
-
 
 Ext.form.ComplexTextField = Ext.extend(Ext.form.TriggerField,  {
 
